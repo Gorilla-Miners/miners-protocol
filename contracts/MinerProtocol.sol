@@ -25,9 +25,16 @@ contract MinerProtocol is Ownable, ReentrancyGuard {
     uint256 maxGenerations = 1;
 
     mapping(address => ReferrerInfo) public referrers;
+    mapping(address => UserReferralInfo[]) public userReferrals;
     mapping(address => uint256) public referralsCount;
     mapping(address => uint256) public totalReferralCommissions;
-    uint256 referralCommisionInBPS = 1000;
+    uint256 public referralCommisionInBPS = 1000;
+    LeadershipInfo[] public leadershipPositionsReward;
+
+    struct LeadershipInfo {
+        uint256 sales;
+        uint256 reward;
+    }
 
     struct ReferrerInfo {
         address referrer;
@@ -35,7 +42,13 @@ contract MinerProtocol is Ownable, ReentrancyGuard {
         uint256 totalEarnings;
     }
 
+    struct UserReferralInfo {
+        address user;
+        int256 debt;
+    }
+
     struct UserInfo {
+        uint256 currentLeadershipPosition; // leadership position 1 - 7
         uint256 totalInvestments;
         uint256 lastWithdrawn;
         uint256 amount;
@@ -45,6 +58,7 @@ contract MinerProtocol is Ownable, ReentrancyGuard {
         uint256 withdrawnAt;
         uint256 reinvestmentDeadline;
         uint256 lockEndTime;
+        uint256 leadershipScore;
     }
 
     event ReferralRecorded(address indexed user, address indexed referrer);
@@ -60,6 +74,27 @@ contract MinerProtocol is Ownable, ReentrancyGuard {
 
     constructor(address _busd) {
         BUSD = _busd;
+        leadershipPositionsReward.push(
+            LeadershipInfo(20000000000000000000000, 200000000000000000000)
+        );
+        leadershipPositionsReward.push(
+            LeadershipInfo(50000000000000000000000, 1000000000000000000000)
+        );
+        leadershipPositionsReward.push(
+            LeadershipInfo(120000000000000000000000, 2500000000000000000000)
+        );
+        leadershipPositionsReward.push(
+            LeadershipInfo(250000000000000000000000, 5000000000000000000000)
+        );
+        leadershipPositionsReward.push(
+            LeadershipInfo(500000000000000000000000, 10000000000000000000000)
+        );
+        leadershipPositionsReward.push(
+            LeadershipInfo(750000000000000000000000, 15000000000000000000000)
+        );
+        leadershipPositionsReward.push(
+            LeadershipInfo(1000000000000000000000000, 20000000000000000000000)
+        );
     }
 
     function clearPreviousStaking(address _account) internal {
@@ -115,6 +150,53 @@ contract MinerProtocol is Ownable, ReentrancyGuard {
         return pending;
     }
 
+    function getReferralRewards(address _account)
+        public
+        view
+        returns (uint256)
+    {
+        int256 pendingReward = 0;
+        for (uint256 i = 0; i < userReferrals[_account].length; i++) {
+            pendingReward = pendingReward + userReferrals[_account][i].debt;
+            uint256 userRewards = getRewards(userReferrals[_account][i].user);
+            uint256 rewardsPercentage = 15;
+            pendingReward =
+                pendingReward +
+                (int256(userRewards.mul(rewardsPercentage).div(100)));
+        }
+
+        return uint256(pendingReward);
+    }
+
+    function addReferralDebt(address _account) internal {
+        ReferrerInfo memory _referrer = getReferrer(_account);
+        if (_referrer.referrer != address(0)) {
+            uint256 userReward = getRewards(_account);
+            UserReferralInfo memory referredUser;
+            uint256 index;
+
+            for (
+                uint256 i = 0;
+                i < userReferrals[_referrer.referrer].length;
+                i++
+            ) {
+                if (userReferrals[_referrer.referrer][i].user == _account) {
+                    index = i;
+                    referredUser = userReferrals[_referrer.referrer][i];
+                    break;
+                }
+            }
+
+            if (referredUser.user != address(0)) {
+                uint256 rewardsPercentage = 15;
+                referredUser.debt =
+                    referredUser.debt +
+                    int256(userReward.mul(rewardsPercentage).div(100));
+                userReferrals[_referrer.referrer][index] = referredUser;
+            }
+        }
+    }
+
     function invest(uint256 _amount) external nonReentrant {
         require(adminFee < _amount, "Incorrect request!");
 
@@ -136,6 +218,7 @@ contract MinerProtocol is Ownable, ReentrancyGuard {
                         "Invest at least 50% of your previous earning"
                     );
                 }
+                addReferralDebt(msg.sender);
                 clearPreviousStaking(msg.sender);
             } else {
                 require(
@@ -162,9 +245,21 @@ contract MinerProtocol is Ownable, ReentrancyGuard {
         payReferrerCommission(msg.sender, investment);
     }
 
+    function clearReferralDebt(address _account) internal {
+        for (uint256 i = 0; i < userReferrals[_account].length; i++) {
+            UserReferralInfo memory usr = userReferrals[_account][i];
+            uint256 userRewards = getRewards(usr.user);
+            uint256 rewardsPercentage = 15;
+            usr.debt = 0 - int256(userRewards.mul(rewardsPercentage).div(100));
+            userReferrals[_account][i] = usr;
+        }
+    }
+
     function withdraw() external nonReentrant {
         UserInfo memory user = userInfo[msg.sender];
-        uint256 totalBalance = getRewards(msg.sender) + user.amount;
+        uint256 totalBalance = getRewards(msg.sender) +
+            getReferralRewards(msg.sender) +
+            user.amount;
 
         require(totalBalance > 0, "withdraw: insufficient amount");
         uint256 _withdrawalAmount = totalBalance;
@@ -184,11 +279,12 @@ contract MinerProtocol is Ownable, ReentrancyGuard {
             user.reinvestmentDeadline = block.timestamp + 1 days;
         }
 
-        
         user.totalWithdrawal = user.totalWithdrawal.add(_withdrawalAmount);
         user.withdrawnAt = block.timestamp;
-        
+
         userInfo[msg.sender] = user;
+        addReferralDebt(msg.sender);
+        clearReferralDebt(msg.sender);
 
         IERC20(BUSD).transfer(
             msg.sender,
@@ -207,11 +303,16 @@ contract MinerProtocol is Ownable, ReentrancyGuard {
         ) {
             referrers[_user].referrer = _referrer;
             referralsCount[_referrer] += 1;
+            userReferrals[_referrer].push(UserReferralInfo(_user, 0));
             emit ReferralRecorded(_user, _referrer);
         }
     }
 
-    function getReferrer(address _user) public view returns (ReferrerInfo memory) {
+    function getReferrer(address _user)
+        public
+        view
+        returns (ReferrerInfo memory)
+    {
         return referrers[_user];
     }
 
@@ -227,6 +328,33 @@ contract MinerProtocol is Ownable, ReentrancyGuard {
         internal
     {
         ReferrerInfo memory referrerInfo = getReferrer(_user);
+        if (referrerInfo.referrer != address(0)) {
+            UserInfo memory referrerUserInfo = userInfo[referrerInfo.referrer];
+            referrerUserInfo.leadershipScore = referrerUserInfo
+                .leadershipScore
+                .add(_transactionAmount);
+            uint256 currentPosition = referrerUserInfo
+                .currentLeadershipPosition;
+            uint256 points = 0;
+            for (
+                uint256 i = currentPosition;
+                i < leadershipPositionsReward.length;
+                i++
+            ) {
+                LeadershipInfo memory pos = leadershipPositionsReward[i];
+                if (referrerUserInfo.leadershipScore < pos.sales) {
+                    break;
+                }
+                points = points.add(pos.reward);
+                currentPosition = currentPosition.add(1);
+            }
+            referrerUserInfo.currentLeadershipPosition = currentPosition;
+            userInfo[referrerInfo.referrer] = referrerUserInfo;
+
+            if (points > 0) {
+                IERC20(BUSD).transfer(referrerInfo.referrer, points);
+            }
+        }
         if (
             referrerInfo.referrer != address(0) &&
             referrerInfo.initialReward == false
@@ -234,12 +362,17 @@ contract MinerProtocol is Ownable, ReentrancyGuard {
             uint256 commision = calcReferralReward(_transactionAmount);
             if (IERC20(BUSD).balanceOf(address(this)) > commision) {
                 if (commision > 0) {
-                    totalReferralCommissions[referrerInfo.referrer] += commision;
+                    totalReferralCommissions[
+                        referrerInfo.referrer
+                    ] += commision;
                     referrerInfo.initialReward = true;
                     referrers[_user] = referrerInfo;
 
                     IERC20(BUSD).transfer(referrerInfo.referrer, commision);
-                    emit ReferralCommissionRecorded(referrerInfo.referrer, commision);
+                    emit ReferralCommissionRecorded(
+                        referrerInfo.referrer,
+                        commision
+                    );
                     emit ReferralCommissionPaid(
                         _user,
                         referrerInfo.referrer,

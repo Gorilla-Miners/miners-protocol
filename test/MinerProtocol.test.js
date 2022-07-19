@@ -22,7 +22,7 @@ contract("MinerProtocol", ([dev, bob, carol, david, erin]) => {
 
     // Mint and approve all contracts
     for (let thisUser of [dev, bob, carol, david, erin]) {
-      await busd.mintTokens(parseEther("2000000"), { from: thisUser });
+      await busd.mintTokens(parseEther("200000000"), { from: thisUser });
 
       await busd.approve(minerProtocol.address, constants.MAX_UINT256, {
         from: thisUser,
@@ -64,7 +64,7 @@ contract("MinerProtocol", ([dev, bob, carol, david, erin]) => {
       );
 
       // ensure carol does not get commission on every investment
-      const initialBalance = 2000000;
+      const initialBalance = 200000000;
       const carolsBalance = initialBalance + referralFee;
       assert.equal(String(await busd.balanceOf(carol)), parseEther(carolsBalance.toString()).toString());
     });
@@ -115,6 +115,44 @@ contract("MinerProtocol", ([dev, bob, carol, david, erin]) => {
         to: bob,
         value: oldDebt,
       });
+    });
+  });
+
+  describe("Referral and leadership programs", async () => {
+    it("User referrals", async function () {
+      const stakingAmount = '700';
+      const carrolStaking = '20000';
+
+      await minerProtocol.invest(
+        parseEther(stakingAmount), { from: bob }
+      );
+
+      await time.increase(86400);
+
+      await minerProtocol.recordReferral(carol, bob, { from: bob });
+      let result = await minerProtocol.getReferrer(carol, { from: bob });
+      assert.equal(result.referrer, bob);
+
+      await minerProtocol.invest(
+        parseEther(carrolStaking), { from: carol }
+      );
+
+      await time.increase(86400);
+
+      result = await minerProtocol.getReferralRewards(bob);
+      let carolDetails = await minerProtocol.getUserDetails(carol);
+
+      let bobDetails = await minerProtocol.getUserDetails(bob);
+
+      await minerProtocol.withdraw({ from: bob });
+      res = await minerProtocol.getReferralRewards(bob);
+      let newBobBalance = await busd.balanceOf(bob);
+
+      let totalBalance = Number(bobDetails[1].toString()) + Number(bobDetails[0].amount.toString()) + Number(result.toString());
+      let paymentReceived = (totalBalance / 2);
+      paymentReceived = paymentReceived - (paymentReceived * 2.5) / 100
+
+      assert.equal(2.0000129950000693e+26.toString(), (Number(String(newBobBalance)) - paymentReceived).toString())
     });
   });
 });
