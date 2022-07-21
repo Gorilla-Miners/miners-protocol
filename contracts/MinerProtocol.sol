@@ -15,8 +15,11 @@ contract MinerProtocol is Ownable, ReentrancyGuard {
     address public adminAddress = 0x3498071A9EC8710faD0745a3A920454F26f2d6AA;
     mapping(address => UserInfo) public userInfo;
 
+    uint256 public contractInitializedAt;
+
     uint256 public dailyReturnsInBPS = 300;
     uint256 public totalInvestments;
+    uint256 public totalParticipants;
     uint256 public totalPayouts;
     uint256 public adminFee = 5000000000000000000; // 5 dollar
     uint256 public withdrawalFeeInBPS = 250;
@@ -74,6 +77,7 @@ contract MinerProtocol is Ownable, ReentrancyGuard {
 
     constructor(address _busd) {
         BUSD = _busd;
+        contractInitializedAt = block.timestamp;
         leadershipPositionsReward.push(
             LeadershipInfo(20000000000000000000000, 200000000000000000000)
         );
@@ -108,6 +112,7 @@ contract MinerProtocol is Ownable, ReentrancyGuard {
         userInfo[_account] = user;
 
         if (_debtAmount > 0) {
+          totalPayouts = totalPayouts.add(_debtAmount);
             IERC20(BUSD).transfer(_account, _debtAmount);
         }
     }
@@ -232,6 +237,7 @@ contract MinerProtocol is Ownable, ReentrancyGuard {
         IERC20(BUSD).transfer(adminAddress, adminFee);
 
         if (user.totalInvestments < 1) {
+            totalParticipants = totalParticipants.add(1);
             user.initialTime = block.timestamp;
             user.lockEndTime = user.initialTime + stakingDuration;
         }
@@ -268,11 +274,11 @@ contract MinerProtocol is Ownable, ReentrancyGuard {
             user.amount = 0;
             user.debt = 0;
             _withdrawalAmount = _withdrawalAmount.div(2);
-            totalPayouts.add(_withdrawalAmount);
+            totalPayouts = totalPayouts.add(_withdrawalAmount);
             user.lastWithdrawn = 0;
         } else {
-            totalPayouts.add(_withdrawalAmount);
             _withdrawalAmount = _withdrawalAmount.mul(70).div(100);
+            totalPayouts = totalPayouts.add(_withdrawalAmount);
             user.debt = totalBalance.sub(_withdrawalAmount);
             user.amount = 0;
             user.lastWithdrawn = _withdrawalAmount;
