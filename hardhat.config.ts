@@ -25,7 +25,7 @@ const config: HardhatUserConfig = {
   networks: {
     hardhat: {},
     testnet: bscTestnet,
-    // mainnet: bscMainnet,
+    mainnet: bscMainnet,
   },
   solidity: {
     compilers: [

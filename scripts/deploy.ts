@@ -11,7 +11,7 @@ async function main() {
   // We get the contract to deploy
   const MinerProtocol = await ethers.getContractFactory("MinerProtocol");
 
-  const minerProtocol = await MinerProtocol.deploy('0xeD24FC36d5Ee211Ea25A80239Fb8C4Cfd80f12Ee');
+  const minerProtocol = await MinerProtocol.deploy('0xe9e7CEA3DedcA5984780Bafc599bD69ADd087D56');
   
   console.log("deployed contract:", minerProtocol.address);
 }

@@ -12,7 +12,7 @@ contract MinerProtocol is Ownable, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
     address public immutable BUSD;
-    address public adminAddress = 0x3498071A9EC8710faD0745a3A920454F26f2d6AA;
+    address public adminAddress = 0xA6B8f18B75C85C0e01282525fff04d820495de83;
     mapping(address => UserInfo) public userInfo;
 
     uint256 public contractInitializedAt;
@@ -24,7 +24,8 @@ contract MinerProtocol is Ownable, ReentrancyGuard {
     uint256 public adminFee = 5000000000000000000; // 5 dollar
     uint256 public withdrawalFeeInBPS = 250;
     uint256 public minCompoundingAmount = 10000000000000000000;
-    uint256 public stakingDuration = 90 days;
+    uint256 public minInvestment = 50000000000000000000;
+    uint256 public stakingDuration = 30 days;
     uint256 maxGenerations = 1;
 
     mapping(address => ReferrerInfo) public referrers;
@@ -112,7 +113,7 @@ contract MinerProtocol is Ownable, ReentrancyGuard {
         userInfo[_account] = user;
 
         if (_debtAmount > 0) {
-          totalPayouts = totalPayouts.add(_debtAmount);
+            totalPayouts = totalPayouts.add(_debtAmount);
             IERC20(BUSD).transfer(_account, _debtAmount);
         }
     }
@@ -226,11 +227,23 @@ contract MinerProtocol is Ownable, ReentrancyGuard {
                 addReferralDebt(msg.sender);
                 clearPreviousStaking(msg.sender);
             } else {
-                require(
-                    investment >= minCompoundingAmount,
-                    "Minimum compounding is 10 busd"
-                );
+                if (user.debt > 0 || user.amount > 0) {
+                    require(
+                        investment >= minCompoundingAmount,
+                        "Minimum compounding is 10 busd"
+                    );
+                } else {
+                    require(
+                        investment >= minInvestment,
+                        "Minimum investment is 50 busd"
+                    );
+                }
             }
+        } else {
+            require(
+                investment >= minInvestment,
+                "Minimum investment is 50 busd"
+            );
         }
 
         IERC20(BUSD).transferFrom(msg.sender, address(this), _amount);
