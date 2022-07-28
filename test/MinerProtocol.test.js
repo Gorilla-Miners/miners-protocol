@@ -124,7 +124,7 @@ contract("MinerProtocol", ([dev, bob, carol, david, erin]) => {
   describe("Referral and leadership programs", async () => {
     it("User referrals", async function () {
       const stakingAmount = '700';
-      const carrolStaking = '20005';
+      const carrolStaking = '20000';
 
       await minerProtocol.invest(
         parseEther(stakingAmount), { from: bob }
@@ -135,6 +135,7 @@ contract("MinerProtocol", ([dev, bob, carol, david, erin]) => {
       await minerProtocol.recordReferral(carol, bob, { from: bob });
       let result = await minerProtocol.getReferrer(carol, { from: bob });
       assert.equal(result.referrer, bob);
+
 
       await minerProtocol.invest(
         parseEther(carrolStaking), { from: carol }
