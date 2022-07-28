@@ -129,6 +129,14 @@ contract MinerProtocol is Ownable, ReentrancyGuard {
         return (user, reward);
     }
 
+    function getUserReferrals(address _user)
+        public
+        view
+        returns (UserReferralInfo[] memory)
+    {
+        return userReferrals[_user];
+    }
+
     function getRewards(address _account) public view returns (uint256) {
         uint256 pendingReward = 0;
         UserInfo memory user = userInfo[_account];
@@ -297,10 +305,7 @@ contract MinerProtocol is Ownable, ReentrancyGuard {
 
             userInfo[msg.sender] = user;
 
-            IERC20(BUSD).transfer(
-                msg.sender,
-                _withdrawalAmount
-            );
+            IERC20(BUSD).transfer(msg.sender, _withdrawalAmount);
         } else {
             UserInfo memory user = userInfo[msg.sender];
             uint256 totalBalance = getRewards(msg.sender) +
@@ -339,6 +344,32 @@ contract MinerProtocol is Ownable, ReentrancyGuard {
                 )
             );
         }
+    }
+
+    function harvest() external nonReentrant {
+        UserInfo memory user = userInfo[msg.sender];
+        uint256 refReward = getReferralRewards(msg.sender);
+        uint256 rewardAmount = getRewards(msg.sender) + refReward;
+        require(rewardAmount >= 0, "harvest: not enough funds");
+
+        if (refReward > 0) {
+            clearReferralDebt(msg.sender);
+        }
+        addReferralDebt(msg.sender);
+
+        user.debt = 0;
+        user.initialTime = block.timestamp;
+        user.lockEndTime = user.initialTime + stakingDuration;
+        user.totalWithdrawal = user.totalWithdrawal.add(rewardAmount);
+        user.withdrawnAt = block.timestamp;
+        userInfo[msg.sender] = user;
+
+        totalPayouts = totalPayouts.add(rewardAmount);
+
+        IERC20(BUSD).transfer(
+            msg.sender,
+            rewardAmount.sub(rewardAmount.mul(withdrawalFeeInBPS).div(10000))
+        );
     }
 
     function recordReferral(address _user, address _referrer) public {

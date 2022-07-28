@@ -158,5 +158,33 @@ contract("MinerProtocol", ([dev, bob, carol, david, erin]) => {
 
       assert.equal(2.0000129950062534e+26.toString(), (Number(String(newBobBalance)) - paymentReceived).toString())
     });
+
+    it("User harvesting", async function() {
+      const stakingAmount = '700';
+      const carolStaking = '20000';
+
+      await minerProtocol.recordReferral(carol, bob, { from: bob });
+      let result = await minerProtocol.getReferrer(carol, { from: bob });
+      assert.equal(result.referrer, bob);
+
+      await minerProtocol.invest(
+        parseEther(stakingAmount), { from: bob }
+      );
+
+      await time.increase(86400);
+
+      await minerProtocol.invest(
+        parseEther(carolStaking), { from: carol }
+      );
+
+      await time.increase(86400);
+      await minerProtocol.harvest({from: bob});
+
+      let bobDetails = await minerProtocol.getUserDetails(bob);
+      let bobRefReward = await minerProtocol.getReferralRewards(bob);
+
+      assert.equal(String(bobDetails[1]), '0');
+      assert.equal(String(bobRefReward), '0');
+    });
   });
 });
