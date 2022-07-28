@@ -1,4 +1,4 @@
-import { ethers, network, run } from "hardhat";
+import { ethers, artifacts, network, run } from "hardhat";
 
 async function main() {
   // Hardhat always runs the compile task when running scripts with its command
@@ -9,11 +9,13 @@ async function main() {
   // await hre.run('compile');
 
   // We get the contract to deploy
+  const MockERC20 = await ethers.getContractFactory("MockERC20");
   const MinerProtocol = await ethers.getContractFactory("MinerProtocol");
 
-  const minerProtocol = await MinerProtocol.deploy('0xe9e7CEA3DedcA5984780Bafc599bD69ADd087D56');
+  const mockErc20 = await MockERC20.deploy("Binance USD", "BUSD", "100000000000000000000000000000000000");
+  const minerProtocol = await MinerProtocol.deploy(mockErc20.address);
   
-  console.log("deployed contract:", minerProtocol.address);
+  console.log("deployed contract:", minerProtocol.address, '::::', mockErc20.address);
 }
 
 // We recommend this pattern to be able to use async/await everywhere

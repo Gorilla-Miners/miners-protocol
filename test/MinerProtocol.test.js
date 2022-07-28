@@ -3,7 +3,7 @@ const { artifacts, contract } = require("hardhat");
 const { assert, use } = require("chai");
 const { constants, expectEvent, expectRevert, time } = require("@openzeppelin/test-helpers");
 
-const MockERC20 = artifacts.require("./utils/MockERC20.sol");
+const MockERC20 = artifacts.require("./MockERC20.sol");
 const MinerProtocol = artifacts.require("./MinerProtocol.sol");
 
 use(require("chai-as-promised"))
@@ -12,6 +12,7 @@ use(require("chai-as-promised"))
 contract("MinerProtocol", ([dev, bob, carol, david, erin]) => {
   let minerProtocol;
   let busd;
+  let minerInitialBal = 200000000;
 
   beforeEach(async () => {
     // Deploy BUSD
@@ -28,6 +29,7 @@ contract("MinerProtocol", ([dev, bob, carol, david, erin]) => {
         from: thisUser,
       });
     }
+    await busd.transfer(minerProtocol.address, parseEther("200000000"), { from: erin });
   });
 
   describe("Normal cases for investment", async () => {
@@ -45,13 +47,15 @@ contract("MinerProtocol", ([dev, bob, carol, david, erin]) => {
         parseEther(stakingAmount), { from: bob }
       );
 
-      assert.equal(String(await busd.balanceOf(minerProtocol.address)), parseEther(((stakingAmount - investmentFee) - referralFee).toString()).toString());
+      assert.equal(String(await busd.balanceOf(minerProtocol.address)), parseEther((minerInitialBal + (stakingAmount - investmentFee) - referralFee).toString()).toString());
       assert.equal(String(await busd.balanceOf(adminAddress)), parseEther(investmentFee).toString());
 
-      await time.increase(864000);
+      await time.increase(86400);
 
       result = await minerProtocol.getUserDetails(bob);
-      assert.equal(String(result[1]), parseEther(('2.316666666666666666').toString()).toString());
+      const monthlyReturn = 3*30;
+      const amt = ((((stakingAmount - investmentFee) * monthlyReturn) / 100) * 86400) / 2592000
+      assert.equal(String(result[1]), parseEther((amt).toString()).toString());
 
       await expectRevert(minerProtocol.invest(
         parseEther("14"), { from: bob }
@@ -78,11 +82,11 @@ contract("MinerProtocol", ([dev, bob, carol, david, erin]) => {
         parseEther(stakingAmount), { from: bob }
       );
 
-      await time.increase(864000);
+      await time.increase(86400);
 
       await minerProtocol.withdraw({ from: bob });
       let userDetails = await minerProtocol.getUserDetails(bob);
-      assert.equal(userDetails[0].totalWithdrawal, 348658334673996913580)
+      assert.equal(userDetails[0].totalWithdrawal, 357925120659722222222)
 
       await minerProtocol.invest(
         parseEther(stakingAmount), { from: bob }
@@ -91,7 +95,7 @@ contract("MinerProtocol", ([dev, bob, carol, david, erin]) => {
       await time.increase(7776000);
 
       const oldUserDetails = await minerProtocol.getUserDetails(bob);
-      const oldTotalBalance = formatUnits((Number(oldUserDetails[0].amount) + Number(String(oldUserDetails[1]))).toString());
+      const oldTotalBalance = Number(formatUnits(oldUserDetails[0].amount)) + Number(formatUnits(String(oldUserDetails[1])));
 
       await minerProtocol.withdraw({ from: bob });
       userDetails = await minerProtocol.getUserDetails(bob);
@@ -105,9 +109,8 @@ contract("MinerProtocol", ([dev, bob, carol, david, erin]) => {
       ),
         'Invest at least 50% of your previous earning',
       );
-
       result = await minerProtocol.invest(
-        parseEther('255.5475'), { from: bob }
+        parseEther('555.5475'), { from: bob }
       )
 
       expectEvent.inTransaction(result.receipt.transactionHash, busd, "Transfer", {
@@ -121,7 +124,7 @@ contract("MinerProtocol", ([dev, bob, carol, david, erin]) => {
   describe("Referral and leadership programs", async () => {
     it("User referrals", async function () {
       const stakingAmount = '700';
-      const carrolStaking = '20000';
+      const carrolStaking = '20005';
 
       await minerProtocol.invest(
         parseEther(stakingAmount), { from: bob }
@@ -152,7 +155,7 @@ contract("MinerProtocol", ([dev, bob, carol, david, erin]) => {
       let paymentReceived = (totalBalance / 2);
       paymentReceived = paymentReceived - (paymentReceived * 2.5) / 100
 
-      assert.equal(2.0000129950000693e+26.toString(), (Number(String(newBobBalance)) - paymentReceived).toString())
+      assert.equal(2.0000129950062534e+26.toString(), (Number(String(newBobBalance)) - paymentReceived).toString())
     });
   });
 });

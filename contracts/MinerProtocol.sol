@@ -16,6 +16,7 @@ contract MinerProtocol is Ownable, ReentrancyGuard {
     mapping(address => UserInfo) public userInfo;
 
     uint256 public contractInitializedAt;
+    bool public emergencyWidthdrawal = false;
 
     uint256 public dailyReturnsInBPS = 300;
     uint256 public totalInvestments;
@@ -145,15 +146,24 @@ contract MinerProtocol is Ownable, ReentrancyGuard {
                 timeDiff = block.timestamp - user.initialTime;
             }
             if (timeDiff >= stakingDuration) {
-                return stakeAmount.mul(dailyReturnsInBPS).div(10000);
+                uint256 stakingDurationInNum = 30;
+                return
+                    stakeAmount.mul(dailyReturnsInBPS).div(10000).mul(
+                        stakingDurationInNum
+                    );
             }
-            uint256 rewardAmount = (((stakeAmount * dailyReturnsInBPS) /
-                10000) * timeDiff) / stakingDuration;
+            uint256 returnsIn30days = dailyReturnsInBPS * 30;
+            uint256 rewardAmount = (((stakeAmount * returnsIn30days) / 10000) *
+                timeDiff) / stakingDuration;
             pendingReward = rewardAmount;
         }
 
         uint256 pending = user.debt.add(pendingReward);
         return pending;
+    }
+
+    function setDailyReturns(uint256 _dailyReturnsInBPS) public {
+        dailyReturnsInBPS = _dailyReturnsInBPS;
     }
 
     function getReferralRewards(address _account)
@@ -275,42 +285,60 @@ contract MinerProtocol is Ownable, ReentrancyGuard {
     }
 
     function withdraw() external nonReentrant {
-        UserInfo memory user = userInfo[msg.sender];
-        uint256 totalBalance = getRewards(msg.sender) +
-            getReferralRewards(msg.sender) +
-            user.amount;
-
-        require(totalBalance > 0, "withdraw: insufficient amount");
-        uint256 _withdrawalAmount = totalBalance;
-
-        if (user.lockEndTime > block.timestamp) {
+        if (emergencyWidthdrawal) {
+            UserInfo memory user = userInfo[msg.sender];
+            uint256 _withdrawalAmount = user.amount;
             user.amount = 0;
             user.debt = 0;
-            _withdrawalAmount = _withdrawalAmount.div(2);
-            totalPayouts = totalPayouts.add(_withdrawalAmount);
             user.lastWithdrawn = 0;
-        } else {
-            _withdrawalAmount = _withdrawalAmount.mul(70).div(100);
-            totalPayouts = totalPayouts.add(_withdrawalAmount);
-            user.debt = totalBalance.sub(_withdrawalAmount);
-            user.amount = 0;
             user.lastWithdrawn = _withdrawalAmount;
-            user.reinvestmentDeadline = block.timestamp + 1 days;
+            user.totalWithdrawal = user.totalWithdrawal.add(_withdrawalAmount);
+            user.withdrawnAt = block.timestamp;
+
+            userInfo[msg.sender] = user;
+
+            IERC20(BUSD).transfer(
+                msg.sender,
+                _withdrawalAmount
+            );
+        } else {
+            UserInfo memory user = userInfo[msg.sender];
+            uint256 totalBalance = getRewards(msg.sender) +
+                getReferralRewards(msg.sender) +
+                user.amount;
+
+            require(totalBalance > 0, "withdraw: insufficient amount");
+            uint256 _withdrawalAmount = totalBalance;
+
+            if (user.lockEndTime > block.timestamp) {
+                user.amount = 0;
+                user.debt = 0;
+                _withdrawalAmount = _withdrawalAmount.div(2);
+                totalPayouts = totalPayouts.add(_withdrawalAmount);
+                user.lastWithdrawn = 0;
+            } else {
+                _withdrawalAmount = _withdrawalAmount.mul(70).div(100);
+                totalPayouts = totalPayouts.add(_withdrawalAmount);
+                user.debt = totalBalance.sub(_withdrawalAmount);
+                user.amount = 0;
+                user.lastWithdrawn = _withdrawalAmount;
+                user.reinvestmentDeadline = block.timestamp + 1 days;
+            }
+
+            user.totalWithdrawal = user.totalWithdrawal.add(_withdrawalAmount);
+            user.withdrawnAt = block.timestamp;
+
+            userInfo[msg.sender] = user;
+            addReferralDebt(msg.sender);
+            clearReferralDebt(msg.sender);
+
+            IERC20(BUSD).transfer(
+                msg.sender,
+                _withdrawalAmount.sub(
+                    _withdrawalAmount.mul(withdrawalFeeInBPS).div(10000)
+                )
+            );
         }
-
-        user.totalWithdrawal = user.totalWithdrawal.add(_withdrawalAmount);
-        user.withdrawnAt = block.timestamp;
-
-        userInfo[msg.sender] = user;
-        addReferralDebt(msg.sender);
-        clearReferralDebt(msg.sender);
-
-        IERC20(BUSD).transfer(
-            msg.sender,
-            _withdrawalAmount.sub(
-                _withdrawalAmount.mul(withdrawalFeeInBPS).div(10000)
-            )
-        );
     }
 
     function recordReferral(address _user, address _referrer) public {
@@ -400,5 +428,9 @@ contract MinerProtocol is Ownable, ReentrancyGuard {
                 }
             }
         }
+    }
+
+    function enableEmergencyWithdrawal(bool _enable) public onlyOwner {
+        emergencyWidthdrawal = _enable;
     }
 }
