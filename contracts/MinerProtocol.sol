@@ -427,36 +427,34 @@ contract MinerProtocol is Ownable, ReentrancyGuard {
                 currentPosition = currentPosition.add(1);
             }
             referrerUserInfo.currentLeadershipPosition = currentPosition;
+            referrerUserInfo.debt = referrerUserInfo.debt.add(points);
             userInfo[referrerInfo.referrer] = referrerUserInfo;
-
-            if (points > 0) {
-                IERC20(BUSD).transfer(referrerInfo.referrer, points);
-            }
         }
         if (
             referrerInfo.referrer != address(0) &&
             referrerInfo.initialReward == false
         ) {
             uint256 commision = calcReferralReward(_transactionAmount);
-            if (IERC20(BUSD).balanceOf(address(this)) > commision) {
-                if (commision > 0) {
-                    totalReferralCommissions[
-                        referrerInfo.referrer
-                    ] += commision;
-                    referrerInfo.initialReward = true;
-                    referrers[_user] = referrerInfo;
+            if (commision > 0) {
+                totalReferralCommissions[referrerInfo.referrer] += commision;
+                referrerInfo.initialReward = true;
+                referrers[_user] = referrerInfo;
 
-                    IERC20(BUSD).transfer(referrerInfo.referrer, commision);
-                    emit ReferralCommissionRecorded(
-                        referrerInfo.referrer,
-                        commision
-                    );
-                    emit ReferralCommissionPaid(
-                        _user,
-                        referrerInfo.referrer,
-                        commision
-                    );
-                }
+                UserInfo memory referrerUserInfo = userInfo[
+                    referrerInfo.referrer
+                ];
+                referrerUserInfo.debt = referrerUserInfo.debt.add(commision);
+                userInfo[referrerInfo.referrer] = referrerUserInfo;
+
+                emit ReferralCommissionRecorded(
+                    referrerInfo.referrer,
+                    commision
+                );
+                emit ReferralCommissionPaid(
+                    _user,
+                    referrerInfo.referrer,
+                    commision
+                );
             }
         }
     }
