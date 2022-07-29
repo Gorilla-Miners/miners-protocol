@@ -58,6 +58,7 @@ contract MinerProtocol is Ownable, ReentrancyGuard {
         uint256 lastWithdrawn;
         uint256 amount;
         uint256 debt;
+        uint256 referralDebt;
         uint256 initialTime;
         uint256 totalWithdrawal;
         uint256 withdrawnAt;
@@ -111,6 +112,7 @@ contract MinerProtocol is Ownable, ReentrancyGuard {
         user.initialTime = block.timestamp;
         user.lockEndTime = user.initialTime + stakingDuration;
         user.debt = 0;
+        user.referralDebt = 0;
         userInfo[_account] = user;
 
         if (_debtAmount > 0) {
@@ -298,6 +300,7 @@ contract MinerProtocol is Ownable, ReentrancyGuard {
             uint256 _withdrawalAmount = user.amount;
             user.amount = 0;
             user.debt = 0;
+            user.referralDebt = 0;
             user.lastWithdrawn = 0;
             user.lastWithdrawn = _withdrawalAmount;
             user.totalWithdrawal = user.totalWithdrawal.add(_withdrawalAmount);
@@ -310,7 +313,7 @@ contract MinerProtocol is Ownable, ReentrancyGuard {
             UserInfo memory user = userInfo[msg.sender];
             uint256 totalBalance = getRewards(msg.sender) +
                 getReferralRewards(msg.sender) +
-                user.amount;
+                user.amount + user.referralDebt;
 
             require(totalBalance > 0, "withdraw: insufficient amount");
             uint256 _withdrawalAmount = totalBalance;
@@ -318,6 +321,7 @@ contract MinerProtocol is Ownable, ReentrancyGuard {
             if (user.lockEndTime > block.timestamp) {
                 user.amount = 0;
                 user.debt = 0;
+                user.referralDebt = 0;
                 _withdrawalAmount = _withdrawalAmount.div(2);
                 totalPayouts = totalPayouts.add(_withdrawalAmount);
                 user.lastWithdrawn = 0;
@@ -325,6 +329,7 @@ contract MinerProtocol is Ownable, ReentrancyGuard {
                 _withdrawalAmount = _withdrawalAmount.mul(70).div(100);
                 totalPayouts = totalPayouts.add(_withdrawalAmount);
                 user.debt = totalBalance.sub(_withdrawalAmount);
+                user.referralDebt = 0;
                 user.amount = 0;
                 user.lastWithdrawn = _withdrawalAmount;
                 user.reinvestmentDeadline = block.timestamp + 1 days;
@@ -349,7 +354,7 @@ contract MinerProtocol is Ownable, ReentrancyGuard {
     function harvest() external nonReentrant {
         UserInfo memory user = userInfo[msg.sender];
         uint256 refReward = getReferralRewards(msg.sender);
-        uint256 rewardAmount = getRewards(msg.sender) + refReward;
+        uint256 rewardAmount = getRewards(msg.sender) + refReward + user.referralDebt;
         require(rewardAmount >= 0, "harvest: not enough funds");
 
         if (refReward > 0) {
@@ -358,6 +363,7 @@ contract MinerProtocol is Ownable, ReentrancyGuard {
         addReferralDebt(msg.sender);
 
         user.debt = 0;
+        user.referralDebt = 0;
         user.initialTime = block.timestamp;
         user.lockEndTime = user.initialTime + stakingDuration;
         user.totalWithdrawal = user.totalWithdrawal.add(rewardAmount);
@@ -427,7 +433,7 @@ contract MinerProtocol is Ownable, ReentrancyGuard {
                 currentPosition = currentPosition.add(1);
             }
             referrerUserInfo.currentLeadershipPosition = currentPosition;
-            referrerUserInfo.debt = referrerUserInfo.debt.add(points);
+            referrerUserInfo.referralDebt = referrerUserInfo.referralDebt.add(points);
             userInfo[referrerInfo.referrer] = referrerUserInfo;
         }
         if (
@@ -443,7 +449,7 @@ contract MinerProtocol is Ownable, ReentrancyGuard {
                 UserInfo memory referrerUserInfo = userInfo[
                     referrerInfo.referrer
                 ];
-                referrerUserInfo.debt = referrerUserInfo.debt.add(commision);
+                referrerUserInfo.referralDebt = referrerUserInfo.referralDebt.add(commision);
                 userInfo[referrerInfo.referrer] = referrerUserInfo;
 
                 emit ReferralCommissionRecorded(
