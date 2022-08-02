@@ -27,7 +27,8 @@ contract MinerProtocol is Ownable, ReentrancyGuard {
     uint256 public minCompoundingAmount = 10000000000000000000;
     uint256 public minInvestment = 50000000000000000000;
     uint256 public stakingDuration = 30 days;
-    uint256 maxGenerations = 1;
+    uint256 public totalTeams = 0;
+    address[] private _downlines;
 
     mapping(address => ReferrerInfo) public referrers;
     mapping(address => UserReferralInfo[]) public userReferrals;
@@ -65,6 +66,7 @@ contract MinerProtocol is Ownable, ReentrancyGuard {
         uint256 reinvestmentDeadline;
         uint256 lockEndTime;
         uint256 leadershipScore;
+        uint256 totalTeam;
     }
 
     event ReferralRecorded(address indexed user, address indexed referrer);
@@ -313,7 +315,8 @@ contract MinerProtocol is Ownable, ReentrancyGuard {
             UserInfo memory user = userInfo[msg.sender];
             uint256 totalBalance = getRewards(msg.sender) +
                 getReferralRewards(msg.sender) +
-                user.amount + user.referralDebt;
+                user.amount +
+                user.referralDebt;
 
             require(totalBalance > 0, "withdraw: insufficient amount");
             uint256 _withdrawalAmount = totalBalance;
@@ -351,10 +354,31 @@ contract MinerProtocol is Ownable, ReentrancyGuard {
         }
     }
 
+    function userUplines(address _user) internal returns (address[] memory) {
+        ReferrerInfo memory referrer = getReferrer(_user);
+        if (referrer.referrer != address(0)) {
+            _downlines.push(referrer.referrer);
+
+            for (uint256 i = 0; i < totalTeams; i++) {
+                address ref = _downlines[_downlines.length - 1];
+                ReferrerInfo memory refUpline = getReferrer(ref);
+                if (refUpline.referrer != address(0)) {
+                    _downlines.push(refUpline.referrer);
+                }
+            }
+        }
+
+        address[] memory downlineArr = _downlines;
+        delete _downlines;
+        return downlineArr;
+    }
+
     function harvest() external nonReentrant {
         UserInfo memory user = userInfo[msg.sender];
         uint256 refReward = getReferralRewards(msg.sender);
-        uint256 rewardAmount = getRewards(msg.sender) + refReward + user.referralDebt;
+        uint256 rewardAmount = getRewards(msg.sender) +
+            refReward +
+            user.referralDebt;
         require(rewardAmount >= 0, "harvest: not enough funds");
 
         if (refReward > 0) {
@@ -378,6 +402,17 @@ contract MinerProtocol is Ownable, ReentrancyGuard {
         );
     }
 
+    function updateUplines(address _user) internal {
+        address[] memory userUps = userUplines(_user);
+
+        for (uint256 i = 0; i < userUps.length; i++) {
+            address ref = userUps[i];
+            UserInfo memory user = userInfo[ref];
+            user.totalTeam = user.totalTeam.add(1);
+            userInfo[ref] = user;
+        }
+    }
+
     function recordReferral(address _user, address _referrer) public {
         if (
             _user != address(0) &&
@@ -385,10 +420,15 @@ contract MinerProtocol is Ownable, ReentrancyGuard {
             _user != _referrer &&
             referrers[_user].referrer == address(0)
         ) {
-            referrers[_user].referrer = _referrer;
-            referralsCount[_referrer] += 1;
-            userReferrals[_referrer].push(UserReferralInfo(_user, 0));
-            emit ReferralRecorded(_user, _referrer);
+            ReferrerInfo memory referrerReferrer = getReferrer(_referrer);
+            if (referrerReferrer.referrer != _user) {
+                referrers[_user].referrer = _referrer;
+                referralsCount[_referrer] += 1;
+                userReferrals[_referrer].push(UserReferralInfo(_user, 0));
+                totalTeams = totalTeams.add(1);
+                updateUplines(_user);
+                emit ReferralRecorded(_user, _referrer);
+            }
         }
     }
 
@@ -413,28 +453,36 @@ contract MinerProtocol is Ownable, ReentrancyGuard {
     {
         ReferrerInfo memory referrerInfo = getReferrer(_user);
         if (referrerInfo.referrer != address(0)) {
-            UserInfo memory referrerUserInfo = userInfo[referrerInfo.referrer];
-            referrerUserInfo.leadershipScore = referrerUserInfo
-                .leadershipScore
-                .add(_transactionAmount);
-            uint256 currentPosition = referrerUserInfo
-                .currentLeadershipPosition;
-            uint256 points = 0;
-            for (
-                uint256 i = currentPosition;
-                i < leadershipPositionsReward.length;
-                i++
-            ) {
-                LeadershipInfo memory pos = leadershipPositionsReward[i];
-                if (referrerUserInfo.leadershipScore < pos.sales) {
-                    break;
+            address[] memory userUps = userUplines(_user);
+
+            for (uint256 i = 0; i < userUps.length; i++) {
+                UserInfo memory referrerUserInfo = userInfo[userUps[i]];
+                referrerUserInfo.leadershipScore = referrerUserInfo
+                    .leadershipScore
+                    .add(_transactionAmount);
+                uint256 currentPosition = referrerUserInfo
+                    .currentLeadershipPosition;
+                uint256 points = 0;
+                for (
+                    uint256 index = currentPosition;
+                    index < leadershipPositionsReward.length;
+                    index++
+                ) {
+                    LeadershipInfo memory pos = leadershipPositionsReward[
+                        index
+                    ];
+                    if (referrerUserInfo.leadershipScore < pos.sales) {
+                        break;
+                    }
+                    points = points.add(pos.reward);
+                    currentPosition = currentPosition.add(1);
                 }
-                points = points.add(pos.reward);
-                currentPosition = currentPosition.add(1);
+                referrerUserInfo.currentLeadershipPosition = currentPosition;
+                referrerUserInfo.referralDebt = referrerUserInfo
+                    .referralDebt
+                    .add(points);
+                userInfo[userUps[i]] = referrerUserInfo;
             }
-            referrerUserInfo.currentLeadershipPosition = currentPosition;
-            referrerUserInfo.referralDebt = referrerUserInfo.referralDebt.add(points);
-            userInfo[referrerInfo.referrer] = referrerUserInfo;
         }
         if (
             referrerInfo.referrer != address(0) &&
@@ -449,7 +497,9 @@ contract MinerProtocol is Ownable, ReentrancyGuard {
                 UserInfo memory referrerUserInfo = userInfo[
                     referrerInfo.referrer
                 ];
-                referrerUserInfo.referralDebt = referrerUserInfo.referralDebt.add(commision);
+                referrerUserInfo.referralDebt = referrerUserInfo
+                    .referralDebt
+                    .add(commision);
                 userInfo[referrerInfo.referrer] = referrerUserInfo;
 
                 emit ReferralCommissionRecorded(
