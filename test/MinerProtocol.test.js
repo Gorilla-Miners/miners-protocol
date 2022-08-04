@@ -37,7 +37,7 @@ contract("MinerProtocol", ([dev, bob, carol, david, erin]) => {
       const stakingAmount = '700';
       const investmentFee = "5";
       const referralFee = ((stakingAmount - investmentFee) * 10) / 100;
-      const adminAddress = await minerProtocol.adminAddress();
+      const adminAddress = await minerProtocol.ADMIN_ADDRESS();
 
       await minerProtocol.recordReferral(bob, carol, { from: bob });
       let result = await minerProtocol.getReferrer(bob, { from: bob });
@@ -47,7 +47,7 @@ contract("MinerProtocol", ([dev, bob, carol, david, erin]) => {
         parseEther(stakingAmount), { from: bob }
       );
 
-      assert.equal(String(await busd.balanceOf(minerProtocol.address)), parseEther((minerInitialBal + (stakingAmount - investmentFee) - referralFee).toString()).toString());
+      assert.equal(String(await busd.balanceOf(minerProtocol.address)), parseEther((minerInitialBal + (stakingAmount - investmentFee)).toString()).toString());
       assert.equal(String(await busd.balanceOf(adminAddress)), parseEther(investmentFee).toString());
 
       await time.increase(86400);
@@ -69,7 +69,7 @@ contract("MinerProtocol", ([dev, bob, carol, david, erin]) => {
 
       // ensure carol does not get commission on every investment
       const initialBalance = 200000000;
-      const carolsBalance = initialBalance + referralFee;
+      const carolsBalance = initialBalance;
       assert.equal(String(await busd.balanceOf(carol)), parseEther(carolsBalance.toString()).toString());
     });
   });
@@ -156,7 +156,7 @@ contract("MinerProtocol", ([dev, bob, carol, david, erin]) => {
       let paymentReceived = (totalBalance / 2);
       paymentReceived = paymentReceived - (paymentReceived * 2.5) / 100
 
-      assert.equal(2.0000129950062534e+26.toString(), (Number(String(newBobBalance)) - paymentReceived).toString())
+      assert.equal(2.0000027475687536e+26.toString(), (Number(String(newBobBalance)) - paymentReceived).toString())
     });
 
     it("User harvesting", async function() {
