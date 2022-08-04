@@ -1,41 +1,44 @@
 // SPDX-License-Identifier: GPL-3.0
 pragma solidity ^0.8.0;
 
+import "@openzeppelin/contracts/security/Pausable.sol";
 import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/utils/math/SafeMath.sol";
 
-contract MinerProtocol is Ownable, ReentrancyGuard {
+
+contract MinerProtocol is Pausable, Ownable, ReentrancyGuard {
     using SafeMath for uint256;
     using SafeERC20 for IERC20;
 
-    address public immutable BUSD;
-    address public adminAddress = 0xA6B8f18B75C85C0e01282525fff04d820495de83;
-    mapping(address => UserInfo) public userInfo;
-
-    uint256 public contractInitializedAt;
-    bool public emergencyWidthdrawal = false;
-
-    uint256 public dailyReturnsInBPS = 300;
-    uint256 public totalInvestments;
-    uint256 public totalParticipants;
-    uint256 public totalPayouts;
-    uint256 public adminFee = 5000000000000000000; // 5 dollar
-    uint256 public withdrawalFeeInBPS = 250;
-    uint256 public minCompoundingAmount = 10000000000000000000;
-    uint256 public minInvestment = 50000000000000000000;
-    uint256 public stakingDuration = 30 days;
-    uint256 public totalTeams = 0;
     address[] private _downlines;
+    address public immutable BUSD;
 
+    mapping(address => UserInfo) public userInfo;
     mapping(address => ReferrerInfo) public referrers;
     mapping(address => UserReferralInfo[]) public userReferrals;
     mapping(address => uint256) public referralsCount;
     mapping(address => uint256) public totalReferralCommissions;
-    uint256 public referralCommisionInBPS = 1000;
     LeadershipInfo[] public leadershipPositionsReward;
+
+    bool public emergencyWidthdrawal = false;
+
+    uint256 public contractInitializedAt;
+    uint256 public totalInvestments;
+    uint256 public totalParticipants;
+    uint256 public totalPayouts;
+    uint256 public totalTeams = 0;
+
+    address public constant ADMIN_ADDRESS = 0xA6B8f18B75C85C0e01282525fff04d820495de83;
+    uint256 public constant ADMIN_FEE = 5000000000000000000; // 5 dollar
+    uint256 public constant DAILY_RETURNS_IN_BPS = 300;
+    uint256 public constant WITHDRAWAL_FEE_IN_BPS = 250;
+    uint256 public constant MIN_COMPOUNDING_AMOUNT = 10000000000000000000;
+    uint256 public constant MIN_INVESTMENT = 50000000000000000000;
+    uint256 public constant STAKING_DURATION = 30 days;
+    uint256 public constant REFERRAL_COMMISSION_IN_BPS = 1000;
 
     struct LeadershipInfo {
         uint256 sales;
@@ -112,7 +115,7 @@ contract MinerProtocol is Ownable, ReentrancyGuard {
         user.withdrawnAt = 0;
         user.lastWithdrawn = 0;
         user.initialTime = block.timestamp;
-        user.lockEndTime = user.initialTime + stakingDuration;
+        user.lockEndTime = user.initialTime + STAKING_DURATION;
         user.debt = 0;
         user.referralDebt = 0;
         userInfo[_account] = user;
@@ -157,25 +160,21 @@ contract MinerProtocol is Ownable, ReentrancyGuard {
             unchecked {
                 timeDiff = block.timestamp - user.initialTime;
             }
-            if (timeDiff >= stakingDuration) {
-                uint256 stakingDurationInNum = 30;
+            if (timeDiff >= STAKING_DURATION) {
+                uint256 STAKING_DURATIONInNum = 30;
                 return
-                    stakeAmount.mul(dailyReturnsInBPS).div(10000).mul(
-                        stakingDurationInNum
+                    stakeAmount.mul(DAILY_RETURNS_IN_BPS).div(10000).mul(
+                        STAKING_DURATIONInNum
                     );
             }
-            uint256 returnsIn30days = dailyReturnsInBPS * 30;
+            uint256 returnsIn30days = DAILY_RETURNS_IN_BPS * 30;
             uint256 rewardAmount = (((stakeAmount * returnsIn30days) / 10000) *
-                timeDiff) / stakingDuration;
+                timeDiff) / STAKING_DURATION;
             pendingReward = rewardAmount;
         }
 
         uint256 pending = user.debt.add(pendingReward);
         return pending;
-    }
-
-    function setDailyReturns(uint256 _dailyReturnsInBPS) public {
-        dailyReturnsInBPS = _dailyReturnsInBPS;
     }
 
     function getReferralRewards(address _account)
@@ -225,11 +224,12 @@ contract MinerProtocol is Ownable, ReentrancyGuard {
         }
     }
 
-    function invest(uint256 _amount) external nonReentrant {
-        require(adminFee < _amount, "Incorrect request!");
+    function invest(uint256 _amount) external whenNotPaused nonReentrant {
+        require(ADMIN_FEE < _amount, "Incorrect request!");
+        require(msg.sender.code.length == 0, "Contracts not allowed.");
 
         UserInfo memory user = userInfo[msg.sender];
-        uint256 investment = _amount - adminFee;
+        uint256 investment = _amount - ADMIN_FEE;
 
         if (user.totalInvestments > 0) {
             if (user.lastWithdrawn > 0) {
@@ -251,30 +251,30 @@ contract MinerProtocol is Ownable, ReentrancyGuard {
             } else {
                 if (user.debt > 0 || user.amount > 0) {
                     require(
-                        investment >= minCompoundingAmount,
+                        investment >= MIN_COMPOUNDING_AMOUNT,
                         "Minimum compounding is 10 busd"
                     );
                 } else {
                     require(
-                        investment >= minInvestment,
+                        investment >= MIN_INVESTMENT,
                         "Minimum investment is 50 busd"
                     );
                 }
             }
         } else {
             require(
-                investment >= minInvestment,
+                investment >= MIN_INVESTMENT,
                 "Minimum investment is 50 busd"
             );
         }
 
         IERC20(BUSD).transferFrom(msg.sender, address(this), _amount);
-        IERC20(BUSD).transfer(adminAddress, adminFee);
+        IERC20(BUSD).transfer(ADMIN_ADDRESS, ADMIN_FEE);
 
         if (user.totalInvestments < 1) {
             totalParticipants = totalParticipants.add(1);
             user.initialTime = block.timestamp;
-            user.lockEndTime = user.initialTime + stakingDuration;
+            user.lockEndTime = user.initialTime + STAKING_DURATION;
         }
 
         user.totalInvestments = user.totalInvestments.add(investment);
@@ -297,6 +297,7 @@ contract MinerProtocol is Ownable, ReentrancyGuard {
     }
 
     function withdraw() external nonReentrant {
+      require(msg.sender.code.length == 0, "Contracts not allowed.");
         if (emergencyWidthdrawal) {
             UserInfo memory user = userInfo[msg.sender];
             uint256 _withdrawalAmount = user.amount;
@@ -309,8 +310,9 @@ contract MinerProtocol is Ownable, ReentrancyGuard {
             user.withdrawnAt = block.timestamp;
 
             userInfo[msg.sender] = user;
-
-            IERC20(BUSD).transfer(msg.sender, _withdrawalAmount);
+            if (_withdrawalAmount > 0) {
+                IERC20(BUSD).transfer(msg.sender, _withdrawalAmount);
+            }
         } else {
             UserInfo memory user = userInfo[msg.sender];
             uint256 totalBalance = getRewards(msg.sender) +
@@ -348,7 +350,7 @@ contract MinerProtocol is Ownable, ReentrancyGuard {
             IERC20(BUSD).transfer(
                 msg.sender,
                 _withdrawalAmount.sub(
-                    _withdrawalAmount.mul(withdrawalFeeInBPS).div(10000)
+                    _withdrawalAmount.mul(WITHDRAWAL_FEE_IN_BPS).div(10000)
                 )
             );
         }
@@ -373,8 +375,13 @@ contract MinerProtocol is Ownable, ReentrancyGuard {
         return downlineArr;
     }
 
-    function harvest() external nonReentrant {
+    function harvest() external whenNotPaused nonReentrant {
+      require(msg.sender.code.length == 0, "Contracts not allowed.");
         UserInfo memory user = userInfo[msg.sender];
+        require(
+            user.totalInvestments > 0,
+            "You need to be active by investing before harvesting."
+        );
         uint256 refReward = getReferralRewards(msg.sender);
         uint256 rewardAmount = getRewards(msg.sender) +
             refReward +
@@ -389,7 +396,7 @@ contract MinerProtocol is Ownable, ReentrancyGuard {
         user.debt = 0;
         user.referralDebt = 0;
         user.initialTime = block.timestamp;
-        user.lockEndTime = user.initialTime + stakingDuration;
+        user.lockEndTime = user.initialTime + STAKING_DURATION;
         user.totalWithdrawal = user.totalWithdrawal.add(rewardAmount);
         user.withdrawnAt = block.timestamp;
         userInfo[msg.sender] = user;
@@ -398,7 +405,7 @@ contract MinerProtocol is Ownable, ReentrancyGuard {
 
         IERC20(BUSD).transfer(
             msg.sender,
-            rewardAmount.sub(rewardAmount.mul(withdrawalFeeInBPS).div(10000))
+            rewardAmount.sub(rewardAmount.mul(WITHDRAWAL_FEE_IN_BPS).div(10000))
         );
     }
 
@@ -414,6 +421,7 @@ contract MinerProtocol is Ownable, ReentrancyGuard {
     }
 
     function recordReferral(address _user, address _referrer) public {
+      require(msg.sender.code.length == 0, "Contracts not allowed.");
         if (
             _user != address(0) &&
             _referrer != address(0) &&
@@ -442,10 +450,10 @@ contract MinerProtocol is Ownable, ReentrancyGuard {
 
     function calcReferralReward(uint256 _amount)
         private
-        view
+        pure
         returns (uint256)
     {
-        return _amount.mul(referralCommisionInBPS).div(10000);
+        return _amount.mul(REFERRAL_COMMISSION_IN_BPS).div(10000);
     }
 
     function payReferrerCommission(address _user, uint256 _transactionAmount)
@@ -517,5 +525,13 @@ contract MinerProtocol is Ownable, ReentrancyGuard {
 
     function enableEmergencyWithdrawal(bool _enable) public onlyOwner {
         emergencyWidthdrawal = _enable;
+    }
+
+    function pause() public onlyOwner {
+      _pause();
+    }
+
+    function unpause() public onlyOwner {
+      _unpause();
     }
 }
